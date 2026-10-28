@@ -23,103 +23,125 @@ logging.basicConfig(
 )
 logger = logging.getLogger("main")
 
+DB_STATUS = {"connected": False, "error": None}
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup: Create tables in SQLite
+    # Startup: Create tables in Database with retry
     logger.info("Initializing database tables...")
-    Base.metadata.create_all(bind=engine)
-    
-    # Auto-migrate SQLite users table for new fields
-    try:
-        from sqlalchemy import inspect
-        from sqlalchemy import text
-        inspector = inspect(engine)
-        if inspector.has_table('users'):
-            columns = [col['name'] for col in inspector.get_columns('users')]
-            with engine.begin() as conn:
-                if 'name' not in columns:
-                    conn.execute(text("ALTER TABLE users ADD COLUMN name VARCHAR(100)"))
-                    logger.info("Added name column to users table.")
-                if 'recovery_email_or_phone' not in columns:
-                    conn.execute(text("ALTER TABLE users ADD COLUMN recovery_email_or_phone VARCHAR(100)"))
-                    logger.info("Added recovery_email_or_phone column to users table.")
-                if 'location' not in columns:
-                    conn.execute(text("ALTER TABLE users ADD COLUMN location VARCHAR(100)"))
-                    logger.info("Added location column to users table.")
-                if 'consent_accepted_at' not in columns:
-                    conn.execute(text("ALTER TABLE users ADD COLUMN consent_accepted_at DATETIME"))
-                    logger.info("Added consent_accepted_at column to users table.")
-                if 'payout_mpesa_number' not in columns:
-                    conn.execute(text("ALTER TABLE users ADD COLUMN payout_mpesa_number VARCHAR(20)"))
-                    logger.info("Added payout_mpesa_number column to users table.")
-                if 'password_hash' not in columns:
-                    conn.execute(text("ALTER TABLE users ADD COLUMN password_hash VARCHAR(100)"))
-                    logger.info("Added password_hash column to users table.")
-                if 'session_token' not in columns:
-                    conn.execute(text("ALTER TABLE users ADD COLUMN session_token VARCHAR(100)"))
-                    logger.info("Added session_token column to users table.")
-        
-        # Auto-migrate SQLite disputes table for new fields
-        if inspector.has_table('disputes'):
-            columns_disputes = [col['name'] for col in inspector.get_columns('disputes')]
-            with engine.begin() as conn:
-                if 'resolution_statement' not in columns_disputes:
-                    conn.execute(text("ALTER TABLE disputes ADD COLUMN resolution_statement TEXT"))
-                    logger.info("Added resolution_statement column to disputes table.")
-                if 'first_instance_outcome' not in columns_disputes:
-                    conn.execute(text("ALTER TABLE disputes ADD COLUMN first_instance_outcome VARCHAR(50)"))
-                    logger.info("Added first_instance_outcome column to disputes table.")
-                if 'first_instance_statement' not in columns_disputes:
-                    conn.execute(text("ALTER TABLE disputes ADD COLUMN first_instance_statement TEXT"))
-                    logger.info("Added first_instance_statement column to disputes table.")
-    except Exception as migration_err:
-        logger.error(f"Error running database table migration: {migration_err}")
-    
-    # Seed staff users
-    db = SessionLocal()
-    try:
-        from backend.app.models import User, UserRole
-        import hashlib
-        staff = [
-            ("MOD_1", UserRole.MODERATOR),
-            ("ARB_1", UserRole.ARBITRATOR),
-            ("ADMIN_1", UserRole.ADMIN)
-        ]
-        for phone, role in staff:
-            exists = db.query(User).filter(User.phone_or_handle == phone).first()
-            pwd = "moderator123" if role == UserRole.MODERATOR else ("arbitrator123" if role == UserRole.ARBITRATOR else "admin123")
-            expected_hash = hashlib.sha256(pwd.encode('utf-8')).hexdigest()
-            
-            if exists:
-                # Update role and password if needed
-                if not exists.password_hash or exists.role != role:
-                    exists.password_hash = expected_hash
-                    exists.role = role
-                    logger.info(f"Updated staff user credentials: {phone}")
+    db_connected = False
+    for attempt in range(1, 6):
+        try:
+            Base.metadata.create_all(bind=engine)
+            db_connected = True
+            DB_STATUS["connected"] = True
+            DB_STATUS["error"] = None
+            logger.info("Database tables initialized successfully.")
+            break
+        except Exception as db_err:
+            DB_STATUS["error"] = str(db_err)
+            logger.warning(f"Database connection attempt {attempt}/5 failed: {db_err}")
+            if attempt < 5:
+                time.sleep(2)
             else:
-                user = User(
-                    phone_or_handle=phone,
-                    role=role,
-                    platform=PlatformType.WHATSAPP,
-                    trust_score=100.0,
-                    password_hash=expected_hash
+                logger.error(
+                    "CRITICAL: Failed to connect to database after 5 attempts. "
+                    "If using Render PostgreSQL, ensure you are using the EXTERNAL Database URL (not the internal .render hostname). "
+                    "Server will continue booting to serve healthchecks and diagnostics."
                 )
-                db.add(user)
-                logger.info(f"Seeded staff user: {phone} as {role.value}")
-        # Clean up historical test disputes so scheduler doesn't loop on old tests
-        from backend.app.models import Dispute
-        stale_disputes = db.query(Dispute).filter(Dispute.resolved_at != None, Dispute.filer_satisfied == None).all()
-        for sd in stale_disputes:
-            sd.filer_satisfied = True
-        db.commit()
-    except Exception as seed_err:
-        logger.error(f"Error during startup data initialization: {seed_err}")
-    finally:
-        db.close()
+
+    if db_connected:
+        # Auto-migrate SQLite/PostgreSQL users table for new fields
+        try:
+            from sqlalchemy import inspect
+            from sqlalchemy import text
+            inspector = inspect(engine)
+            if inspector.has_table('users'):
+                columns = [col['name'] for col in inspector.get_columns('users')]
+                with engine.begin() as conn:
+                    if 'name' not in columns:
+                        conn.execute(text("ALTER TABLE users ADD COLUMN name VARCHAR(100)"))
+                        logger.info("Added name column to users table.")
+                    if 'recovery_email_or_phone' not in columns:
+                        conn.execute(text("ALTER TABLE users ADD COLUMN recovery_email_or_phone VARCHAR(100)"))
+                        logger.info("Added recovery_email_or_phone column to users table.")
+                    if 'location' not in columns:
+                        conn.execute(text("ALTER TABLE users ADD COLUMN location VARCHAR(100)"))
+                        logger.info("Added location column to users table.")
+                    if 'consent_accepted_at' not in columns:
+                        conn.execute(text("ALTER TABLE users ADD COLUMN consent_accepted_at DATETIME"))
+                        logger.info("Added consent_accepted_at column to users table.")
+                    if 'payout_mpesa_number' not in columns:
+                        conn.execute(text("ALTER TABLE users ADD COLUMN payout_mpesa_number VARCHAR(20)"))
+                        logger.info("Added payout_mpesa_number column to users table.")
+                    if 'password_hash' not in columns:
+                        conn.execute(text("ALTER TABLE users ADD COLUMN password_hash VARCHAR(100)"))
+                        logger.info("Added password_hash column to users table.")
+                    if 'session_token' not in columns:
+                        conn.execute(text("ALTER TABLE users ADD COLUMN session_token VARCHAR(100)"))
+                        logger.info("Added session_token column to users table.")
+            
+            # Auto-migrate disputes table for new fields
+            if inspector.has_table('disputes'):
+                columns_disputes = [col['name'] for col in inspector.get_columns('disputes')]
+                with engine.begin() as conn:
+                    if 'resolution_statement' not in columns_disputes:
+                        conn.execute(text("ALTER TABLE disputes ADD COLUMN resolution_statement TEXT"))
+                        logger.info("Added resolution_statement column to disputes table.")
+                    if 'first_instance_outcome' not in columns_disputes:
+                        conn.execute(text("ALTER TABLE disputes ADD COLUMN first_instance_outcome VARCHAR(50)"))
+                        logger.info("Added first_instance_outcome column to disputes table.")
+                    if 'first_instance_statement' not in columns_disputes:
+                        conn.execute(text("ALTER TABLE disputes ADD COLUMN first_instance_statement TEXT"))
+                        logger.info("Added first_instance_statement column to disputes table.")
+        except Exception as migration_err:
+            logger.error(f"Error running database table migration: {migration_err}")
         
-    # Start APScheduler tasks
-    logger.info("Initializing background scheduler...")
-    start_scheduler(SessionLocal)
+        # Seed staff users
+        db = SessionLocal()
+        try:
+            from backend.app.models import User, UserRole
+            import hashlib
+            staff = [
+                ("MOD_1", UserRole.MODERATOR),
+                ("ARB_1", UserRole.ARBITRATOR),
+                ("ADMIN_1", UserRole.ADMIN)
+            ]
+            for phone, role in staff:
+                exists = db.query(User).filter(User.phone_or_handle == phone).first()
+                pwd = "moderator123" if role == UserRole.MODERATOR else ("arbitrator123" if role == UserRole.ARBITRATOR else "admin123")
+                expected_hash = hashlib.sha256(pwd.encode('utf-8')).hexdigest()
+                
+                if exists:
+                    # Update role and password if needed
+                    if not exists.password_hash or exists.role != role:
+                        exists.password_hash = expected_hash
+                        exists.role = role
+                        logger.info(f"Updated staff user credentials: {phone}")
+                else:
+                    user = User(
+                        phone_or_handle=phone,
+                        role=role,
+                        platform=PlatformType.WHATSAPP,
+                        trust_score=100.0,
+                        password_hash=expected_hash
+                    )
+                    db.add(user)
+                    logger.info(f"Seeded staff user: {phone} as {role.value}")
+            # Clean up historical test disputes so scheduler doesn't loop on old tests
+            from backend.app.models import Dispute
+            stale_disputes = db.query(Dispute).filter(Dispute.resolved_at != None, Dispute.filer_satisfied == None).all()
+            for sd in stale_disputes:
+                sd.filer_satisfied = True
+            db.commit()
+        except Exception as seed_err:
+            logger.error(f"Error during startup data initialization: {seed_err}")
+        finally:
+            db.close()
+            
+        # Start APScheduler tasks
+        logger.info("Initializing background scheduler...")
+        start_scheduler(SessionLocal)
     
     yield
     # Shutdown logic (if any)
@@ -162,7 +184,9 @@ def health_check():
     return {
         "status": "ok",
         "app": settings.PROJECT_NAME,
-        "mode": "simulation" if settings.SIMULATION_MODE else "production"
+        "mode": "simulation" if settings.SIMULATION_MODE else "production",
+        "database": "connected" if DB_STATUS["connected"] else "error",
+        "db_error": DB_STATUS["error"]
     }
 
 @app.get("/api", tags=["API Root"])
