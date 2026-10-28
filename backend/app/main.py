@@ -1,7 +1,10 @@
 from fastapi import FastAPI, Depends, Form, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from contextlib import asynccontextmanager
 from sqlalchemy.orm import Session
+import os
 from backend.app.config import settings
 from backend.app.database import engine, Base, SessionLocal, get_db
 from backend.app.routes import meta_webhook, daraja_webhook, dashboard
@@ -150,13 +153,24 @@ app.include_router(meta_webhook.router, prefix="/api")
 app.include_router(daraja_webhook.router, prefix="/api")
 app.include_router(dashboard.router, prefix="/api")
 
-@app.get("/")
-def read_root():
+# ----------------------------------------------------
+# Container & Health Check Endpoints (Coolify / Docker)
+# ----------------------------------------------------
+@app.get("/health", tags=["Health"])
+@app.get("/api/health", tags=["Health"])
+def health_check():
+    return {
+        "status": "ok",
+        "app": settings.PROJECT_NAME,
+        "mode": "simulation" if settings.SIMULATION_MODE else "production"
+    }
+
+@app.get("/api", tags=["API Root"])
+def api_root():
     return {
         "status": "online",
         "app": settings.PROJECT_NAME,
-        "mode": "simulation" if settings.SIMULATION_MODE else "production",
-        "timestamp": lifespan
+        "mode": "simulation" if settings.SIMULATION_MODE else "production"
     }
 
 # ----------------------------------------------------
@@ -260,3 +274,35 @@ def get_user_public_profile(user_identifier: str, db: Session = Depends(get_db))
         
     summary = RatingService.get_profile_summary(db, user)
     return summary
+
+# ----------------------------------------------------
+# Frontend SPA Static Serving (Production / Container)
+# ----------------------------------------------------
+frontend_dist = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "frontend", "dist"))
+if os.path.exists(frontend_dist) and os.path.isfile(os.path.join(frontend_dist, "index.html")):
+    assets_dir = os.path.join(frontend_dist, "assets")
+    if os.path.exists(assets_dir):
+        app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
+
+    @app.get("/")
+    async def serve_root():
+        return FileResponse(os.path.join(frontend_dist, "index.html"))
+
+    @app.get("/{full_path:path}")
+    async def serve_spa_frontend(full_path: str):
+        # Do not intercept API, health, docs, or openapi schema
+        if full_path.startswith("api") or full_path.startswith("health") or full_path.startswith("docs") or full_path.startswith("openapi.json"):
+            raise HTTPException(status_code=404, detail="Not Found")
+        
+        file_path = os.path.join(frontend_dist, full_path)
+        if full_path and os.path.isfile(file_path):
+            return FileResponse(file_path)
+        return FileResponse(os.path.join(frontend_dist, "index.html"))
+else:
+    @app.get("/")
+    def read_root():
+        return {
+            "status": "online",
+            "app": settings.PROJECT_NAME,
+            "mode": "simulation" if settings.SIMULATION_MODE else "production"
+        }

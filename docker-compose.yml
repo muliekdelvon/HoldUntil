@@ -1,0 +1,52 @@
+services:
+  holduntil:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: holduntil
+    restart: unless-stopped
+    ports:
+      - "${PORT:-8000}:8000"
+    environment:
+      - PORT=8000
+      - PYTHONUNBUFFERED=1
+      - PYTHONPATH=/app
+      - DEBUG=${DEBUG:-false}
+      - SIMULATION_MODE=${SIMULATION_MODE:-false}
+      - DATABASE_URL=${DATABASE_URL:-sqlite:////app/data/holduntil.db}
+
+      # Safaricom Daraja (M-Pesa) Settings
+      - DARAJA_ENV=${DARAJA_ENV:-production}
+      - DARAJA_CONSUMER_KEY=${DARAJA_CONSUMER_KEY}
+      - DARAJA_CONSUMER_SECRET=${DARAJA_CONSUMER_SECRET}
+      - DARAJA_TRANSACTION_TYPE=${DARAJA_TRANSACTION_TYPE:-CustomerPayBillOnline}
+      - DARAJA_SHORTCODE=${DARAJA_SHORTCODE}
+      - DARAJA_BUY_GOODS_TILL=${DARAJA_BUY_GOODS_TILL:-}
+      - DARAJA_PASSKEY=${DARAJA_PASSKEY}
+      - DARAJA_CALLBACK_URL=${DARAJA_CALLBACK_URL}
+      - DARAJA_B2C_CALLBACK_URL=${DARAJA_B2C_CALLBACK_URL:-}
+      - DARAJA_B2C_SHORTCODE=${DARAJA_B2C_SHORTCODE:-}
+      - DARAJA_INITIATOR_NAME=${DARAJA_INITIATOR_NAME:-}
+      - DARAJA_SECURITY_CREDENTIAL=${DARAJA_SECURITY_CREDENTIAL:-}
+
+      # Meta WhatsApp Cloud API
+      - META_API_VERSION=${META_API_VERSION:-v18.0}
+      - META_VERIFY_TOKEN=${META_VERIFY_TOKEN}
+      - META_ACCESS_TOKEN=${META_ACCESS_TOKEN}
+      - META_PHONE_NUMBER_ID=${META_PHONE_NUMBER_ID}
+      - BOT_WHATSAPP_NUMBER=${BOT_WHATSAPP_NUMBER:-}
+
+      # AI Moderator (Gemini)
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+    volumes:
+      - holduntil_data:/app/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+volumes:
+  holduntil_data:
+

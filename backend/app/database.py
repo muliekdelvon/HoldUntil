@@ -1,3 +1,4 @@
+import os
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker, declarative_base
 from backend.app.config import settings
@@ -6,6 +7,15 @@ from backend.app.config import settings
 connect_args = {}
 if settings.DATABASE_URL.startswith("sqlite"):
     connect_args["check_same_thread"] = False
+    # Ensure database directory exists if custom path is configured
+    db_clean_path = settings.DATABASE_URL.replace("sqlite:////", "/").replace("sqlite:///", "")
+    if db_clean_path and not db_clean_path.startswith(":memory:"):
+        db_dir = os.path.dirname(os.path.abspath(db_clean_path))
+        if db_dir and not os.path.exists(db_dir):
+            try:
+                os.makedirs(db_dir, exist_ok=True)
+            except Exception:
+                pass
 
 engine = create_engine(
     settings.DATABASE_URL,

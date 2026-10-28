@@ -11,3 +11,4 @@ python-dotenv>=1.0.0
 pytest>=7.0.0
 python-multipart
 psycopg2-binary>=2.9.0
+aiofiles>=23.0.0

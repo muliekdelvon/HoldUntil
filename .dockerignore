@@ -1,0 +1,51 @@
+# Git
+.git
+.gitignore
+.github
+
+# Python artifacts & virtual environments
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+backend/venv/
+venv/
+.venv/
+env/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Secrets & environment files
+.env
+.env.*
+*.env
+*.pem
+*.key
+
+# Frontend build cache & dependencies
+frontend/node_modules/
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Database & local sqlite files
+*.db
+*.sqlite3
+holduntil.db
+backend/holduntil.db
+data/
+
+# IDE & Editor cache
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Documentation / Scratch logs
+scratch/
+*.log
+
