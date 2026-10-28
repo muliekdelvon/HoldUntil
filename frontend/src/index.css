@@ -214,3 +214,73 @@ h1, h2, h3, h4 {
   padding: 4px 8px;
   max-width: 90%;
 }
+
+/* Responsive Sandbox Grid & Layout */
+.sandbox-grid {
+  display: grid;
+  gap: 16px;
+  min-height: calc(100vh - 150px);
+  width: 100%;
+}
+
+.sandbox-grid.mode-all {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr) minmax(0, 1fr);
+}
+
+.sandbox-grid.mode-chat_only {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.sandbox-grid.mode-single {
+  grid-template-columns: minmax(0, 1fr);
+  max-width: 760px;
+  margin: 0 auto;
+}
+
+.seller-panel,
+.ledger-panel,
+.buyer-panel {
+  min-width: 0;
+  width: 100%;
+}
+
+/* Ensure code, pre and text wraps without breaking layout */
+code, pre, .chat-bubble {
+  word-break: break-word;
+  overflow-wrap: break-word;
+}
+
+/* Tablet & Laptop Responsive Breakpoints (e.g. 1366x768 screens) */
+@media (max-width: 1280px) {
+  .sandbox-grid.mode-all {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+  .sandbox-grid.mode-all > .ledger-panel {
+    grid-column: 1 / -1;
+    order: 3;
+  }
+}
+
+@media (max-width: 900px) {
+  .sandbox-grid.mode-all,
+  .sandbox-grid.mode-chat_only {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  
+  header.glass-card {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 12px !important;
+    margin: 8px !important;
+    padding: 12px 16px !important;
+  }
+  
+  header.glass-card nav {
+    overflow-x: auto;
+    padding-bottom: 4px;
+    width: 100%;
+    -webkit-overflow-scrolling: touch;
+  }
+}

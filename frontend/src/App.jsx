@@ -71,6 +71,7 @@ export default function App() {
   const [videoCallBuyerPresent, setVideoCallBuyerPresent] = useState(true);
   const [videoCallProxyName, setVideoCallProxyName] = useState('');
   const [videoCallMilestoneIndex, setVideoCallMilestoneIndex] = useState('');
+  const [sandboxViewMode, setSandboxViewMode] = useState('all'); // 'all', 'chat_only', 'seller', 'ledger', 'buyer'
   
   // Dashboard State
   const [disputes, setDisputes] = useState([]);
@@ -1165,7 +1166,7 @@ export default function App() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', background: 'var(--bg-main)' }}>
       {/* HEADER */}
-      <header className="glass-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 24px', margin: '16px', borderBottomRightRadius: '16px', borderBottomLeftRadius: '16px' }}>
+      <header className="glass-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 24px', margin: '16px', borderBottomRightRadius: '16px', borderBottomLeftRadius: '16px', flexWrap: 'wrap', gap: '16px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <ShieldCheck size={36} color="var(--primary)" />
           <div>
@@ -1177,14 +1178,14 @@ export default function App() {
         </div>
         
         {/* TABS & STAFF STATUS */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
           {staffUser && (
             <div style={{ fontSize: '0.8rem', background: 'rgba(255,255,255,0.02)', padding: '6px 12px', borderRadius: '8px', border: '1px solid var(--border-muted)', color: 'white', display: 'flex', alignItems: 'center', gap: '8px' }}>
               <span>Staff: <b style={{ color: 'var(--primary)' }}>{staffUser.phone_or_handle}</b> <span style={{ color: 'var(--text-muted)', fontSize: '0.75rem' }}>({staffUser.role.toUpperCase()})</span></span>
               <button onClick={handleLogout} className="btn btn-secondary" style={{ padding: '3px 8px', fontSize: '0.7rem', height: 'auto', background: 'rgba(239, 68, 68, 0.1)', borderColor: 'rgba(239, 68, 68, 0.2)', color: '#EF4444' }}>Sign Out</button>
             </div>
           )}
-          <nav style={{ display: 'flex', gap: '8px' }}>
+          <nav style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             <button onClick={() => setActiveTab('verify')} className={`btn ${activeTab === 'verify' ? 'btn-primary' : 'btn-secondary'}`}>
               <Search size={16} /> Seller lookup
             </button>
@@ -1333,10 +1334,58 @@ export default function App() {
 
         {/* CHAT SANDBOX SIMULATOR */}
         {activeTab === 'sandbox' && (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 2fr 1fr', gap: '16px', minHeight: 'calc(100vh - 150px)' }}>
-            
-            {/* SELLER VIRTUAL MOBILE */}
-            <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', height: '100%', padding: '16px', position: 'relative' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+            {/* View Mode Switcher Toolbar */}
+            <div className="glass-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 16px', flexWrap: 'wrap', gap: '10px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem' }}>
+                <Smartphone size={18} color="var(--primary)" />
+                <span style={{ fontWeight: 600, color: 'white' }}>Sandbox View:</span>
+              </div>
+              <div style={{ display: 'flex', gap: '6px', background: 'rgba(255,255,255,0.03)', padding: '4px', borderRadius: '8px', border: '1px solid var(--border-muted)', flexWrap: 'wrap' }}>
+                <button 
+                  onClick={() => setSandboxViewMode('all')}
+                  className={`btn ${sandboxViewMode === 'all' ? 'btn-primary' : 'btn-secondary'}`}
+                  style={{ padding: '4px 10px', fontSize: '0.75rem', height: 'auto' }}
+                  title="Show Seller, Ledger, and Buyer in responsive grid"
+                >
+                  🖥️ 3-Column Split
+                </button>
+                <button 
+                  onClick={() => setSandboxViewMode('chat_only')}
+                  className={`btn ${sandboxViewMode === 'chat_only' ? 'btn-primary' : 'btn-secondary'}`}
+                  style={{ padding: '4px 10px', fontSize: '0.75rem', height: 'auto' }}
+                  title="Show Seller and Buyer side-by-side with maximum space"
+                >
+                  📱 Dual Chat (Seller + Buyer)
+                </button>
+                <button 
+                  onClick={() => setSandboxViewMode('seller')}
+                  className={`btn ${sandboxViewMode === 'seller' ? 'btn-primary' : 'btn-secondary'}`}
+                  style={{ padding: '4px 10px', fontSize: '0.75rem', height: 'auto' }}
+                >
+                  👤 Seller View
+                </button>
+                <button 
+                  onClick={() => setSandboxViewMode('ledger')}
+                  className={`btn ${sandboxViewMode === 'ledger' ? 'btn-primary' : 'btn-secondary'}`}
+                  style={{ padding: '4px 10px', fontSize: '0.75rem', height: 'auto' }}
+                >
+                  🔒 Escrow Ledger
+                </button>
+                <button 
+                  onClick={() => setSandboxViewMode('buyer')}
+                  className={`btn ${sandboxViewMode === 'buyer' ? 'btn-primary' : 'btn-secondary'}`}
+                  style={{ padding: '4px 10px', fontSize: '0.75rem', height: 'auto' }}
+                >
+                  👤 Buyer View
+                </button>
+              </div>
+            </div>
+
+            <div className={`sandbox-grid mode-${sandboxViewMode === 'seller' || sandboxViewMode === 'buyer' || sandboxViewMode === 'ledger' ? 'single' : sandboxViewMode}`}>
+              {/* SELLER VIRTUAL MOBILE */}
+              {(sandboxViewMode === 'all' || sandboxViewMode === 'chat_only' || sandboxViewMode === 'seller') && (
+                <div className="glass-card seller-panel" style={{ display: 'flex', flexDirection: 'column', height: '100%', padding: '16px', position: 'relative', minWidth: 0 }}>
               
               {/* WhatsApp Flow Screen Simulation Modal */}
               {showSellerFlowModal && (
@@ -1803,10 +1852,12 @@ export default function App() {
                   </div>
                 )}
               </div>
-            </div>
+                </div>
+              )}
 
-            {/* SECURE LEDGER & STATE PANEL */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              {/* SECURE LEDGER & STATE PANEL */}
+              {(sandboxViewMode === 'all' || sandboxViewMode === 'ledger') && (
+                <div className="ledger-panel" style={{ display: 'flex', flexDirection: 'column', gap: '16px', minWidth: 0 }}>
               <div className="glass-card" style={{ padding: '20px', flex: 1 }}>
                 <h3 style={{ fontSize: '1.1rem', marginBottom: '16px', borderBottom: '1px solid var(--border-muted)', paddingBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <Lock size={18} color="var(--primary)" /> Escrow Secure Ledger
@@ -1943,11 +1994,13 @@ export default function App() {
                     </div>
                   </div>
                 )}
-              </div>
-            </div>
+                  </div>
+                </div>
+              )}
 
-            {/* BUYER VIRTUAL MOBILE */}
-            <div className="glass-card" style={{ display: 'flex', flexDirection: 'column', height: '100%', padding: '16px', position: 'relative' }}>
+              {/* BUYER VIRTUAL MOBILE */}
+              {(sandboxViewMode === 'all' || sandboxViewMode === 'chat_only' || sandboxViewMode === 'buyer') && (
+                <div className="glass-card buyer-panel" style={{ display: 'flex', flexDirection: 'column', height: '100%', padding: '16px', position: 'relative', minWidth: 0 }}>
               
               {/* WhatsApp Flow Screen Simulation Modal (Buyer) */}
               {showBuyerFlowModal && (
@@ -2304,10 +2357,11 @@ export default function App() {
                   </div>
                 )}
               </div>
+            </div>
+          )}
           </div>
-
-          </div>
-        )}
+        </div>
+      )}
 
         {/* IN-APP CAMERA & GALLERY */}
         {activeTab === 'gallery' && (
