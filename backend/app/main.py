@@ -350,6 +350,13 @@ def get_user_public_profile(user_identifier: str, db: Session = Depends(get_db))
     return summary
 
 # ----------------------------------------------------
+# Persistent Uploads Static Serving (Local fallback)
+# ----------------------------------------------------
+from backend.app.services.storage_service import UPLOAD_BASE_DIR
+if os.path.exists(UPLOAD_BASE_DIR):
+    app.mount("/api/uploads", StaticFiles(directory=UPLOAD_BASE_DIR), name="uploads")
+
+# ----------------------------------------------------
 # Frontend SPA Static Serving (Production / Container)
 # ----------------------------------------------------
 frontend_dist = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "frontend", "dist"))

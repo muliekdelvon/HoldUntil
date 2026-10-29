@@ -30,10 +30,22 @@ class Settings(BaseSettings):
     DARAJA_CALLBACK_URL: str = "https://example.com/api/webhook/daraja/callback"
     DARAJA_B2C_CALLBACK_URL: str = "https://example.com/api/webhook/daraja/b2c_callback"
     DARAJA_REVERSAL_CALLBACK_URL: str = "https://example.com/api/webhook/daraja/reversal"
+    DARAJA_ACCOUNT_BALANCE_CALLBACK_URL: str = "https://example.com/api/webhook/daraja/account_balance"
+    B2C_FLOAT_ALERT_THRESHOLD_KES: float = 50000.0
     ADMIN_ALERT_PHONE: str = ""  # Optional phone for urgent security/fraud alerts
 
-    # AI Moderator Settings (Gemini)
+    # AI Moderator & Vision OCR Settings (Gemini)
     GEMINI_API_KEY: str = ""
+    WAYBILL_FRAUD_THRESHOLD: float = 40.0
+
+    # Cloud Object Storage (Cloudflare R2 / AWS S3 / Local)
+    STORAGE_BACKEND: str = "local"  # "local", "s3", or "r2"
+    S3_ENDPOINT_URL: str = ""        # e.g. https://<account_id>.r2.cloudflarestorage.com
+    S3_ACCESS_KEY_ID: str = ""
+    S3_SECRET_ACCESS_KEY: str = ""
+    S3_BUCKET_NAME: str = ""
+    S3_REGION_NAME: str = "auto"
+    S3_PUBLIC_DOMAIN: str = ""       # e.g. https://media.yourdomain.com
 
     # Business Rules
     ESCROW_FEE_PERCENT: float = 1.5  # 1.5% fee

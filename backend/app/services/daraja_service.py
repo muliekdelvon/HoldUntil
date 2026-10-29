@@ -435,3 +435,47 @@ class DarajaService:
         except Exception as e:
             logger.error(f"Daraja Reversal request error for {transaction_id}: {e}")
             return {"ResponseCode": "1", "ResponseDescription": str(e)}
+
+    @classmethod
+    def query_account_balance(
+        cls,
+        shortcode: str = None,
+        remarks: str = "B2C Escrow Float Monitor"
+    ) -> dict:
+        """
+        Queries the current balance of the M-Pesa B2C Utility Account / Paybill.
+        Safaricom delivers the actual balance asynchronously to DARAJA_ACCOUNT_BALANCE_CALLBACK_URL.
+        """
+        target_shortcode = shortcode or settings.DARAJA_B2C_SHORTCODE or settings.DARAJA_SHORTCODE
+
+        if settings.SIMULATION_MODE:
+            logger.info(f"[SIMULATION] Mock Account Balance Query for Shortcode {target_shortcode}")
+            return {
+                "ResponseCode": "0",
+                "ResponseDescription": "Accept the service request successfully.",
+                "ConversationID": f"sim_bal_conv_{uuid.uuid4().hex[:12]}",
+                "OriginatorConversationID": f"sim_bal_orig_{uuid.uuid4().hex[:12]}"
+            }
+
+        access_token = cls._get_access_token()
+        url = f"https://{'sandbox' if settings.DARAJA_ENV == 'sandbox' else 'api'}.safaricom.co.ke/mpesa/accountbalance/v1/query"
+        headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
+
+        payload = {
+            "Initiator": settings.DARAJA_INITIATOR_NAME,
+            "SecurityCredential": settings.DARAJA_SECURITY_CREDENTIAL,
+            "CommandID": "AccountBalance",
+            "PartyA": str(target_shortcode).strip(),
+            "IdentifierType": "4",  # 4 = Shortcode Organization
+            "Remarks": remarks[:100],
+            "QueueTimeOutURL": settings.DARAJA_ACCOUNT_BALANCE_CALLBACK_URL,
+            "ResultURL": settings.DARAJA_ACCOUNT_BALANCE_CALLBACK_URL
+        }
+
+        try:
+            response = requests.post(url, json=payload, headers=headers, timeout=15)
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            logger.error(f"Daraja Account Balance query error for {target_shortcode}: {e}")
+            return {"ResponseCode": "1", "ResponseDescription": str(e)}

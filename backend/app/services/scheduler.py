@@ -467,6 +467,18 @@ def run_tier_1_checks(db: Session):
                     record_reminder_sent(db, handle, deal_id, "rate_deal")
                     logger.info(f"Sent rating reminder nudge for Deal {deal_id} to user {handle}")
 
+def check_b2c_float_balance():
+    """
+    Periodically queries Safaricom Daraja for the B2C payout working float balance
+    to proactively alert administration before the float is exhausted.
+    """
+    try:
+        from backend.app.services.daraja_service import DarajaService
+        logger.info("Executing scheduled M-Pesa B2C utility float balance query...")
+        DarajaService.query_account_balance()
+    except Exception as e:
+        logger.error(f"Error querying B2C account balance in scheduler: {e}")
+
 def start_scheduler(SessionLocalFactory):
     """Start APScheduler jobs."""
     def job_wrapper():
@@ -477,5 +489,6 @@ def start_scheduler(SessionLocalFactory):
             db.close()
 
     scheduler.add_job(job_wrapper, "interval", minutes=5, id="tier1_auto_resolve")
+    scheduler.add_job(check_b2c_float_balance, "interval", hours=6, id="b2c_float_balance_check")
     scheduler.start()
-    logger.info("APScheduler initialized and running Tier 1 checks every 5 minutes.")
+    logger.info("APScheduler initialized: Tier 1 checks (every 5m), B2C float monitor (every 6h).")

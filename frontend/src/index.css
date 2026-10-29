@@ -45,6 +45,13 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+html, body, #root {
+  width: 100%;
+  max-width: 100vw;
+  overflow-x: hidden;
+  box-sizing: border-box;
+}
+
 /* Scrollbar styling */
 ::-webkit-scrollbar {
   width: 6px;
@@ -219,23 +226,24 @@ h1, h2, h3, h4 {
 .sandbox-grid {
   display: grid;
   gap: 16px;
-  min-height: calc(100vh - 150px);
   width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .sandbox-grid.mode-all {
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr) minmax(0, 1fr);
 }
 
 .sandbox-grid.mode-chat_only {
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  max-width: 1200px;
+  max-width: 1300px;
   margin: 0 auto;
 }
 
 .sandbox-grid.mode-single {
   grid-template-columns: minmax(0, 1fr);
-  max-width: 760px;
+  max-width: 720px;
   margin: 0 auto;
 }
 
@@ -243,30 +251,49 @@ h1, h2, h3, h4 {
 .ledger-panel,
 .buyer-panel {
   min-width: 0;
-  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 /* Ensure code, pre and text wraps without breaking layout */
 code, pre, .chat-bubble {
   word-break: break-word;
-  overflow-wrap: break-word;
+  overflow-wrap: anywhere;
 }
 
-/* Tablet & Laptop Responsive Breakpoints (e.g. 1366x768 screens) */
-@media (max-width: 1280px) {
+/* On large widescreen displays: Seller (1), Ledger (2), Buyer (3) */
+@media (min-width: 1401px) {
+  .sandbox-grid.mode-all > .seller-panel { order: 1; }
+  .sandbox-grid.mode-all > .ledger-panel { order: 2; }
+  .sandbox-grid.mode-all > .buyer-panel { order: 3; }
+}
+
+/* On laptops and tablets (<= 1400px down to 861px):
+   Seller (1) and Buyer (2) sit side-by-side on top with 50% width each!
+   The Escrow Ledger sits cleanly below across both columns, so neither user is squished! */
+@media (max-width: 1400px) {
   .sandbox-grid.mode-all {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   }
+  .sandbox-grid.mode-all > .seller-panel { order: 1; }
+  .sandbox-grid.mode-all > .buyer-panel { order: 2; }
   .sandbox-grid.mode-all > .ledger-panel {
     grid-column: 1 / -1;
     order: 3;
   }
 }
 
-@media (max-width: 900px) {
+/* Mobile screens: Single column stacked with full-width cards */
+@media (max-width: 860px) {
   .sandbox-grid.mode-all,
   .sandbox-grid.mode-chat_only {
     grid-template-columns: minmax(0, 1fr);
+  }
+  .sandbox-grid.mode-all > .seller-panel { order: 1; }
+  .sandbox-grid.mode-all > .buyer-panel { order: 2; }
+  .sandbox-grid.mode-all > .ledger-panel {
+    grid-column: 1;
+    order: 3;
   }
   
   header.glass-card {

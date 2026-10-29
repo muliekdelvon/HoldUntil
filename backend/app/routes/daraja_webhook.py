@@ -466,3 +466,84 @@ async def mpesa_reversal_callback(request: Request, db: Session = Depends(get_db
     except Exception as e:
         logger.error(f"Error handling M-Pesa reversal callback: {e}", exc_info=True)
         return {"ResultCode": 0, "ResultDesc": "Error logged"}
+
+def process_account_balance_result(payload: dict, db: Session) -> dict:
+    """
+    Parses Safaricom M-Pesa Account Balance result and triggers proactive
+    admin alerts if the working utility float drops below B2C_FLOAT_ALERT_THRESHOLD_KES.
+    """
+    body = payload.get("Result", payload)
+    result_code = body.get("ResultCode")
+    result_desc = body.get("ResultDesc")
+    conversation_id = body.get("ConversationID")
+
+    if result_code == 0:
+        result_params = body.get("ResultParameters", {}).get("ResultParameter", [])
+        balance_str = ""
+        for p in result_params:
+            if p.get("Key") in ["AccountBalance", "Account_Balance"]:
+                balance_str = p.get("Value", "")
+                break
+
+        # Parse Safaricom balance string: "Account|Currency|Available|Actual|Reserved|Uncleared&..."
+        account_balances = {}
+        for acct in balance_str.split("&"):
+            parts = acct.split("|")
+            if len(parts) >= 3:
+                acct_name = parts[0].strip()
+                try:
+                    avail_bal = float(parts[2].strip())
+                    account_balances[acct_name] = avail_bal
+                except (ValueError, IndexError):
+                    pass
+
+        logger.info(f"Parsed M-Pesa account balances: {account_balances}")
+
+        # Identify working / utility float
+        working_float = account_balances.get("Working Account") or account_balances.get("Utility Account") or next(iter(account_balances.values()), None)
+
+        if working_float is not None:
+            threshold = getattr(settings, "B2C_FLOAT_ALERT_THRESHOLD_KES", 50000.0)
+            if working_float < threshold:
+                logger.warning(
+                    f"🚨 LOW M-PESA FLOAT WARNING: Current balance KES {working_float:,.2f} "
+                    f"is below threshold KES {threshold:,.2f}!"
+                )
+                if settings.ADMIN_ALERT_PHONE:
+                    warning_text = (
+                        f"⚠️ *HOLDUNTIL ESCROW FLOAT WARNING* ⚠️\n\n"
+                        f"• Payout Utility Float: *KES {working_float:,.2f}*\n"
+                        f"• Alert Threshold: *KES {threshold:,.2f}*\n"
+                        f"• Status: *CRITICAL LOW*\n\n"
+                        f"Please top up the M-Pesa B2C working float to avoid delays in automated seller disbursements."
+                    )
+                    MetaService.send_text_message(
+                        db=db,
+                        platform="whatsapp",
+                        recipient=settings.ADMIN_ALERT_PHONE,
+                        text=warning_text,
+                        is_urgent=True,
+                        bypass_checks=True
+                    )
+            else:
+                logger.info(f"M-Pesa B2C Float healthy: KES {working_float:,.2f} (Threshold: KES {threshold:,.2f})")
+
+        return {"ResultCode": 0, "ResultDesc": "Account balance processed successfully", "balances": account_balances}
+    else:
+        logger.warning(f"M-Pesa Account Balance query returned failure code {result_code}: {result_desc}")
+        return {"ResultCode": 0, "ResultDesc": "Failure acknowledged"}
+
+@router.post("/account_balance")
+async def mpesa_account_balance_callback(request: Request, db: Session = Depends(get_db)):
+    """
+    Callback endpoint for Safaricom M-Pesa Account Balance query results.
+    Monitors B2C utility float balance and sends proactive WhatsApp alerts to the admin
+    if the balance falls below B2C_FLOAT_ALERT_THRESHOLD_KES.
+    """
+    try:
+        payload = await request.json()
+        logger.info(f"Received M-Pesa Account Balance Callback: {payload}")
+        return process_account_balance_result(payload, db)
+    except Exception as e:
+        logger.error(f"Error handling M-Pesa account balance callback: {e}", exc_info=True)
+        return {"ResultCode": 0, "ResultDesc": "Error logged"}

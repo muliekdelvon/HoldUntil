@@ -26,6 +26,10 @@ frontend/dist/
 *.db-shm
 *.db-wal
 
+# Local Uploads
+uploads/
+backend/app/uploads/
+
 # IDE Settings
 .idea/
 *.suo

@@ -1093,6 +1093,25 @@ def simulate_mpesa_payment(checkout_id: str = Form(...), db: Session = Depends(g
 
     return {"status": "payment_simulated", "receipt": receipt_no, "deal_status": deal.status}
 
+@router.post("/upload")
+async def upload_file(
+    file: UploadFile = File(...),
+    folder: str = Form("evidence")
+):
+    """
+    Direct upload endpoint for chat media, courier slips, and dispute evidence.
+    Routes to Cloudflare R2 / AWS S3 or persistent local storage via StorageService.
+    """
+    from backend.app.services.storage_service import StorageService
+    contents = await file.read()
+    file_url = StorageService.upload_file(
+        file_data=contents,
+        original_filename=file.filename or "upload.jpg",
+        content_type=file.content_type or "application/octet-stream",
+        folder=folder
+    )
+    return {"status": "success", "file_url": file_url}
+
 @router.post("/simulation/upload-evidence")
 def upload_simulated_evidence(
     deal_id: str = Form(...),

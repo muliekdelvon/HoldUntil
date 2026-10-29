@@ -1029,16 +1029,26 @@ export default function App() {
     }
   };
 
-  // Scroll Chat to bottom
-  const sellerChatBottomRef = useRef(null);
-  const buyerChatBottomRef = useRef(null);
+  // Scroll Chat to bottom within its container (prevents window scrolling / layout shifting)
+  const sellerChatContainerRef = useRef(null);
+  const buyerChatContainerRef = useRef(null);
 
   useEffect(() => {
-    sellerChatBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (sellerChatContainerRef.current) {
+      sellerChatContainerRef.current.scrollTo({
+        top: sellerChatContainerRef.current.scrollHeight,
+        behavior: 'smooth'
+      });
+    }
   }, [sellerChatLogs]);
 
   useEffect(() => {
-    buyerChatBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (buyerChatContainerRef.current) {
+      buyerChatContainerRef.current.scrollTo({
+        top: buyerChatContainerRef.current.scrollHeight,
+        behavior: 'smooth'
+      });
+    }
   }, [buyerChatLogs]);
 
   const renderTrendChart = () => {
@@ -1337,7 +1347,7 @@ export default function App() {
         {activeTab === 'sandbox' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
             {/* View Mode Switcher Toolbar */}
-            <div className="glass-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 16px', flexWrap: 'wrap', gap: '10px' }}>
+            <div className="glass-card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 16px', flexWrap: 'wrap', gap: '10px', position: 'sticky', top: '8px', zIndex: 50, backdropFilter: 'blur(16px)', background: 'rgba(17, 22, 37, 0.9)' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem' }}>
                 <Smartphone size={18} color="var(--primary)" />
                 <span style={{ fontWeight: 600, color: 'white' }}>Sandbox View:</span>
@@ -1347,9 +1357,9 @@ export default function App() {
                   onClick={() => setSandboxViewMode('all')}
                   className={`btn ${sandboxViewMode === 'all' ? 'btn-primary' : 'btn-secondary'}`}
                   style={{ padding: '4px 10px', fontSize: '0.75rem', height: 'auto' }}
-                  title="Show Seller, Ledger, and Buyer in responsive grid"
+                  title="Show Seller, Buyer, and Ledger in responsive layout"
                 >
-                  🖥️ 3-Column Split
+                  🖥️ 3-Way Layout
                 </button>
                 <button 
                   onClick={() => setSandboxViewMode('chat_only')}
@@ -1367,18 +1377,18 @@ export default function App() {
                   👤 Seller View
                 </button>
                 <button 
-                  onClick={() => setSandboxViewMode('ledger')}
-                  className={`btn ${sandboxViewMode === 'ledger' ? 'btn-primary' : 'btn-secondary'}`}
-                  style={{ padding: '4px 10px', fontSize: '0.75rem', height: 'auto' }}
-                >
-                  🔒 Escrow Ledger
-                </button>
-                <button 
                   onClick={() => setSandboxViewMode('buyer')}
                   className={`btn ${sandboxViewMode === 'buyer' ? 'btn-primary' : 'btn-secondary'}`}
                   style={{ padding: '4px 10px', fontSize: '0.75rem', height: 'auto' }}
                 >
                   👤 Buyer View
+                </button>
+                <button 
+                  onClick={() => setSandboxViewMode('ledger')}
+                  className={`btn ${sandboxViewMode === 'ledger' ? 'btn-primary' : 'btn-secondary'}`}
+                  style={{ padding: '4px 10px', fontSize: '0.75rem', height: 'auto' }}
+                >
+                  🔒 Escrow Ledger
                 </button>
               </div>
             </div>
@@ -1516,25 +1526,39 @@ export default function App() {
                 </div>
               )}
 
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--border-muted)', paddingBottom: '12px', marginBottom: '12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--border-muted)', paddingBottom: '12px', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: 'var(--primary)' }}></div>
                   <h3 style={{ fontSize: '0.9rem', margin: 0, fontWeight: 'bold' }}>Seller View</h3>
                 </div>
-                <input 
-                  type="text" 
-                  value={sellerPhone} 
-                  onChange={(e) => {
-                    setSellerPhone(e.target.value);
-                    setSellerSessionState('IDLE');
-                  }} 
-                  title="Edit to simulate different phone numbers"
-                  style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border-muted)', borderRadius: '4px', color: 'white', fontSize: '0.75rem', width: '110px', padding: '2px 6px', textAlign: 'right' }}
-                />
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <button 
+                    type="button" 
+                    onClick={() => setSandboxViewMode(sandboxViewMode === 'seller' ? 'buyer' : 'seller')} 
+                    className="btn btn-secondary" 
+                    style={{ padding: '3px 8px', fontSize: '0.7rem', height: 'auto' }}
+                    title="Toggle between Seller and Buyer view"
+                  >
+                    {sandboxViewMode === 'seller' ? 'Switch to Buyer →' : 'Focus Seller 👤'}
+                  </button>
+                  <input 
+                    type="text" 
+                    value={sellerPhone} 
+                    onChange={(e) => {
+                      setSellerPhone(e.target.value);
+                      setSellerSessionState('IDLE');
+                    }} 
+                    title="Edit to simulate different phone numbers"
+                    style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border-muted)', borderRadius: '4px', color: 'white', fontSize: '0.75rem', width: '110px', padding: '2px 6px', textAlign: 'right' }}
+                  />
+                </div>
               </div>
               
               {/* Chat View */}
-              <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px', background: '#0b141a', borderRadius: '8px', padding: '12px', minHeight: '260px' }}>
+              <div 
+                ref={sellerChatContainerRef}
+                style={{ height: '360px', maxHeight: '42vh', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px', background: '#0b141a', borderRadius: '8px', padding: '12px' }}
+              >
                 {sellerChatLogs.map((log, idx) => {
                   const isBot = log.sender_handle === 'Bot';
                   const isSeller = log.sender_handle === 'Seller';
@@ -1620,7 +1644,6 @@ export default function App() {
                     </div>
                   </div>
                 )}
-                <div ref={sellerChatBottomRef} />
               </div>
 
               {/* Chat Input */}
@@ -2195,25 +2218,39 @@ export default function App() {
                 </div>
               )}
 
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--border-muted)', paddingBottom: '12px', marginBottom: '12px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--border-muted)', paddingBottom: '12px', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: 'var(--secondary)' }}></div>
                   <h3 style={{ fontSize: '0.9rem', margin: 0, fontWeight: 'bold' }}>Buyer View</h3>
                 </div>
-                <input 
-                  type="text" 
-                  value={buyerPhone} 
-                  onChange={(e) => {
-                    setBuyerPhone(e.target.value);
-                    setBuyerSessionState('IDLE');
-                  }} 
-                  title="Edit to simulate different phone numbers"
-                  style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border-muted)', borderRadius: '4px', color: 'white', fontSize: '0.75rem', width: '110px', padding: '2px 6px', textAlign: 'right' }}
-                />
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <button 
+                    type="button" 
+                    onClick={() => setSandboxViewMode(sandboxViewMode === 'buyer' ? 'seller' : 'buyer')} 
+                    className="btn btn-secondary" 
+                    style={{ padding: '3px 8px', fontSize: '0.7rem', height: 'auto' }}
+                    title="Toggle between Buyer and Seller view"
+                  >
+                    {sandboxViewMode === 'buyer' ? '← Switch to Seller' : 'Focus Buyer 👤'}
+                  </button>
+                  <input 
+                    type="text" 
+                    value={buyerPhone} 
+                    onChange={(e) => {
+                      setBuyerPhone(e.target.value);
+                      setBuyerSessionState('IDLE');
+                    }} 
+                    title="Edit to simulate different phone numbers"
+                    style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border-muted)', borderRadius: '4px', color: 'white', fontSize: '0.75rem', width: '110px', padding: '2px 6px', textAlign: 'right' }}
+                  />
+                </div>
               </div>
 
               {/* Chat View */}
-              <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px', background: '#0b141a', borderRadius: '8px', padding: '12px', minHeight: '260px' }}>
+              <div 
+                ref={buyerChatContainerRef}
+                style={{ height: '360px', maxHeight: '42vh', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px', background: '#0b141a', borderRadius: '8px', padding: '12px' }}
+              >
                 {buyerChatLogs.map((log, idx) => {
                   const isBot = log.sender_handle === 'Bot';
                   const isBuyer = log.sender_handle === 'Buyer';
@@ -2299,7 +2336,6 @@ export default function App() {
                     </div>
                   </div>
                 )}
-                <div ref={buyerChatBottomRef} />
               </div>
 
               {/* Chat Input */}

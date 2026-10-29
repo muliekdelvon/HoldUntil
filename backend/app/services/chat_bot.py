@@ -1239,14 +1239,58 @@ class ChatBotService:
                         return "Got it! We have marked the item as shipped and notified the buyer to confirm receipt."
 
                     elif media_url:
-                        # Photo submitted as shipping evidence
-                        # We will process it in a controller route but let's save basic evidence here
+                        # Photo submitted as shipping evidence - execute Gemini Vision OCR scan
+                        from backend.app.services.ai_service import AIService
                         from backend.app.services.image_service import ImageService
                         
                         # Generate dynamic code to verify
                         if not deal.verification_code:
                             deal.verification_code = f"HU-{uuid.uuid4().hex[:4].upper()}"
                             db.commit()
+
+                        deal_context = {
+                            "item_description": deal.item_description,
+                            "buyer_location": deal.buyer.location if deal.buyer else "N/A",
+                            "buyer_phone": deal.buyer.phone_or_handle if deal.buyer else "N/A",
+                            "funded_at": deal.created_at.strftime("%Y-%m-%d") if deal.created_at else "N/A"
+                        }
+                        waybill = AIService.scan_courier_waybill(media_url, deal_context)
+
+                        if waybill.get("is_valid_shipping_document") and waybill.get("waybill_number"):
+                            deal.courier_name = waybill.get("courier_name") or deal.courier_name or "Courier"
+                            deal.tracking_number = waybill.get("waybill_number")
+                            deal.status = DealStatus.SHIPPED
+                            db.commit()
+
+                            # Notify Buyer with interactive buttons
+                            buyer_phone = deal.buyer.phone_or_handle if deal.buyer else None
+                            if buyer_phone:
+                                MetaService.send_smart_reply(
+                                    db=db,
+                                    platform=platform,
+                                    recipient=buyer_phone,
+                                    text=(
+                                        f"📦 The seller has shipped your item via {deal.courier_name}! "
+                                        f"Waybill / Tracking: {deal.tracking_number}.\n\n"
+                                        f"Once delivered and inspected, reply RELEASE to release funds to the seller, "
+                                        f"or DISPUTE if there is a problem."
+                                    ),
+                                    deal_id=deal.id,
+                                    is_urgent=True
+                                )
+
+                            discrepancy_note = ""
+                            if waybill.get("discrepancies"):
+                                discrepancy_note = f"\n⚠️ Note: {', '.join(waybill['discrepancies'])}"
+
+                            return (
+                                f"✅ Courier Waybill Verified via AI Vision OCR!\n\n"
+                                f"• Courier: {deal.courier_name}\n"
+                                f"• Tracking/Waybill: {deal.tracking_number}\n"
+                                f"• Destination: {waybill.get('destination_town', 'Verified')}\n"
+                                f"• Status: Marked as SHIPPED{discrepancy_note}\n\n"
+                                f"We have notified the buyer to confirm receipt upon arrival."
+                            )
 
                         # Return confirmation
                         return (
