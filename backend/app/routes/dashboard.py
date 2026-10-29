@@ -106,8 +106,11 @@ def get_all_deals(current_user: User = Depends(get_current_staff), db: Session =
 
 @router.get("/deals/{deal_id}")
 def get_deal_detail(deal_id: str, current_user: User = Depends(get_current_staff), db: Session = Depends(get_db)):
-    """Retrieve detailed information about a single deal."""
-    deal = db.query(Deal).filter(Deal.id == deal_id).first()
+    """Retrieve detailed information about a single deal by UUID or short_code."""
+    clean_id = deal_id.strip()
+    deal = db.query(Deal).filter(Deal.short_code == clean_id.upper()).first()
+    if not deal:
+        deal = db.query(Deal).filter(Deal.id == clean_id).first()
     if not deal:
         raise HTTPException(status_code=404, detail="Deal not found")
 
@@ -132,6 +135,8 @@ def get_deal_detail(deal_id: str, current_user: User = Depends(get_current_staff
         "buyer_session_state": buyer_session.get("state", "IDLE"),
         "deal": {
             "id": deal.id,
+            "short_code": deal.short_code,
+            "invite_link": f"https://wa.me/{settings.BOT_WHATSAPP_NUMBER}?text=JOIN_{deal.short_code or deal.id}",
             "seller_id": deal.seller_id,
             "seller_handle": seller.phone_or_handle if seller else "Unknown",
             "buyer_id": deal.buyer_id,

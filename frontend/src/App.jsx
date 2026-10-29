@@ -1865,10 +1865,44 @@ export default function App() {
 
                 {dealDetails ? (
                   <div>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '12px' }}>
-                      <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Transaction Reference ID</span>
-                      <code style={{ fontSize: '0.8rem', color: 'var(--secondary)' }}>{dealDetails.deal.id}</code>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap', gap: '8px' }}>
+                      <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Deal Code & Reference</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        {dealDetails.deal.short_code && (
+                          <span style={{ background: 'rgba(16,185,129,0.15)', color: 'var(--primary)', padding: '2px 8px', borderRadius: '4px', fontWeight: 'bold', fontSize: '0.8rem', border: '1px solid rgba(16,185,129,0.3)' }}>
+                            {dealDetails.deal.short_code}
+                          </span>
+                        )}
+                        <code style={{ fontSize: '0.75rem', color: 'var(--secondary)', wordBreak: 'break-all' }}>{dealDetails.deal.id}</code>
+                      </div>
                     </div>
+
+                    {/* 1-Tap WhatsApp Share Link */}
+                    {dealDetails.deal.status === 'draft' && (
+                      <div style={{ background: 'rgba(6,182,212,0.06)', border: '1px solid rgba(6,182,212,0.2)', padding: '10px', borderRadius: '8px', marginBottom: '14px' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                          <span style={{ fontSize: '0.72rem', color: 'var(--secondary)', fontWeight: 'bold' }}>1-TAP WHATSAPP SHARE LINK</span>
+                          <span style={{ fontSize: '0.65rem', color: 'var(--text-muted)' }}>Share with Buyer</span>
+                        </div>
+                        <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+                          <input 
+                            readOnly 
+                            value={dealDetails.deal.invite_link || `https://wa.me/254107560742?text=JOIN_${dealDetails.deal.short_code || dealDetails.deal.id}`} 
+                            style={{ flex: 1, padding: '4px 8px', fontSize: '0.75rem', background: '#0b141a', border: '1px solid var(--border-muted)', borderRadius: '4px', color: 'white' }} 
+                          />
+                          <button 
+                            onClick={() => {
+                              navigator.clipboard.writeText(dealDetails.deal.invite_link || `https://wa.me/254107560742?text=JOIN_${dealDetails.deal.short_code || dealDetails.deal.id}`);
+                              alert("1-Tap WhatsApp link copied to clipboard!");
+                            }}
+                            className="btn btn-secondary"
+                            style={{ padding: '4px 8px', fontSize: '0.7rem' }}
+                          >
+                            Copy
+                          </button>
+                        </div>
+                      </div>
+                    )}
 
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
                       <div style={{ background: 'rgba(255,255,255,0.02)', padding: '12px', borderRadius: '8px' }}>
@@ -1971,7 +2005,7 @@ export default function App() {
                     <div style={{ display: 'flex', gap: '8px', maxWidth: '320px', margin: '0 auto' }}>
                       <input 
                         type="text" 
-                        placeholder="Paste invite link or Deal ID" 
+                        placeholder="Paste invite link, Code, or Deal ID" 
                         className="form-input"
                         style={{ fontSize: '0.75rem', padding: '6px' }}
                         id="manual_deal_id_input"
@@ -1980,8 +2014,9 @@ export default function App() {
                         onClick={() => {
                           const val = document.getElementById('manual_deal_id_input')?.value?.trim();
                           if (val) {
+                            const joinMatch = val.match(/JOIN_([A-Za-z0-9-]+)/i);
                             const uuidMatch = val.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/i);
-                            const id = uuidMatch ? uuidMatch[0] : val;
+                            const id = joinMatch ? joinMatch[1] : (uuidMatch ? uuidMatch[0] : val);
                             setActiveDealId(id);
                             fetchDealDetails(id);
                           }
@@ -2253,12 +2288,12 @@ export default function App() {
                 
                 {dealDetails?.deal?.status === 'draft' && (
                   <button 
-                    onClick={() => sendSandboxMessage(buyerPhone, `JOIN_${dealDetails.deal.id}`, 'Buyer')} 
+                    onClick={() => sendSandboxMessage(buyerPhone, `JOIN_${dealDetails.deal.short_code || dealDetails.deal.id}`, 'Buyer')} 
                     className="btn btn-secondary" 
                     style={{ padding: '6px', fontSize: '0.75rem' }}
                     disabled={sandboxLoading}
                   >
-                    1. Tap Invite Link (JOIN)
+                    1. Tap Invite Link ({dealDetails.deal.short_code ? `JOIN_${dealDetails.deal.short_code}` : 'JOIN'})
                   </button>
                 )}
 

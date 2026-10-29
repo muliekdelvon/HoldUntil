@@ -1,9 +1,14 @@
 import uuid
+import secrets
 from datetime import datetime, UTC
 from enum import Enum
 
 def utcnow():
     return datetime.now(UTC).replace(tzinfo=None)
+
+def generate_short_code(length=6):
+    chars = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
+    return "".join(secrets.choice(chars) for _ in range(length))
 from sqlalchemy import Column, String, Float, Integer, Boolean, DateTime, ForeignKey, Text, JSON, Enum as SQLEnum
 from sqlalchemy.orm import relationship
 from backend.app.database import Base
@@ -97,6 +102,7 @@ class Deal(Base):
     __tablename__ = "deals"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    short_code = Column(String(10), unique=True, nullable=True, default=generate_short_code, index=True)
     seller_id = Column(String(36), ForeignKey("users.id"), nullable=False)
     buyer_id = Column(String(36), ForeignKey("users.id"), nullable=True)  # Nullable until buyer accepts invite
     item_description = Column(Text, nullable=False)
@@ -281,4 +287,15 @@ class ReminderTracker(Base):
     created_at = Column(DateTime, default=utcnow, nullable=False)
 
     deal = relationship("Deal")
+
+class UserSession(Base):
+    __tablename__ = "user_sessions"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    phone_or_handle = Column(String(100), unique=True, nullable=False, index=True)
+    state = Column(String(50), default="IDLE", nullable=False)
+    deal_id = Column(String(36), nullable=True)
+    session_data = Column(JSON, default=dict, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
+    created_at = Column(DateTime, default=utcnow)
 

@@ -10,8 +10,161 @@ import logging
 
 logger = logging.getLogger("chat_bot")
 
-# In-memory session tracking mapping phone_or_handle -> session dict
-USER_SESSIONS = {}
+class PersistentSessionStore(dict):
+    """
+    Database-backed session store that behaves exactly like a standard Python dict.
+    Provides in-memory caching with transparent database persistence to 'user_sessions' table.
+    Survives container restarts, crashes, and multi-worker reload events in Coolify.
+    """
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._db_factory = None
+
+    def init_db(self, db_factory):
+        self._db_factory = db_factory
+
+    def load_all(self, db_factory=None):
+        if db_factory:
+            self._db_factory = db_factory
+        if not self._db_factory:
+            try:
+                from backend.app.database import SessionLocal
+                self._db_factory = SessionLocal
+            except Exception:
+                return
+
+        db = self._db_factory()
+        try:
+            from backend.app.models import UserSession
+            sessions = db.query(UserSession).all()
+            for s in sessions:
+                session_dict = {
+                    "state": s.state or "IDLE",
+                    "deal_id": s.deal_id,
+                }
+                if isinstance(s.session_data, dict):
+                    session_dict.update(s.session_data)
+                super().__setitem__(s.phone_or_handle, session_dict)
+            logger.info(f"Loaded {len(sessions)} persistent sessions from database.")
+        except Exception as e:
+            logger.warning(f"Could not load sessions from database: {e}")
+        finally:
+            db.close()
+
+    def _sync_to_db(self, phone: str, session_data: dict):
+        if not self._db_factory:
+            try:
+                from backend.app.database import SessionLocal
+                self._db_factory = SessionLocal
+            except Exception:
+                return
+
+        db = self._db_factory()
+        try:
+            from backend.app.models import UserSession
+            user_session = db.query(UserSession).filter(UserSession.phone_or_handle == phone).first()
+            state = session_data.get("state", "IDLE")
+            deal_id = session_data.get("deal_id")
+            
+            # Extract additional custom keys into session_data JSON
+            extra_data = {k: v for k, v in session_data.items() if k not in ["state", "deal_id"]}
+
+            if user_session:
+                user_session.state = state
+                user_session.deal_id = deal_id
+                user_session.session_data = extra_data
+                user_session.updated_at = datetime.now(UTC).replace(tzinfo=None)
+            else:
+                user_session = UserSession(
+                    phone_or_handle=phone,
+                    state=state,
+                    deal_id=deal_id,
+                    session_data=extra_data
+                )
+                db.add(user_session)
+            db.commit()
+        except Exception as e:
+            logger.error(f"Error persisting session for {phone} to DB: {e}")
+            try:
+                db.rollback()
+            except Exception:
+                pass
+        finally:
+            db.close()
+
+    def __setitem__(self, key, value):
+        super().__setitem__(key, value)
+        if isinstance(value, dict):
+            self._sync_to_db(key, value)
+
+    def setdefault(self, key, default=None):
+        if key not in self:
+            db_session = self._fetch_from_db(key)
+            if db_session:
+                super().__setitem__(key, db_session)
+                return db_session
+            val = default if default is not None else {"state": "IDLE", "deal_id": None}
+            self[key] = val
+            return val
+        return self[key]
+
+    def _fetch_from_db(self, phone: str):
+        if not self._db_factory:
+            try:
+                from backend.app.database import SessionLocal
+                self._db_factory = SessionLocal
+            except Exception:
+                return None
+        db = self._db_factory()
+        try:
+            from backend.app.models import UserSession
+            s = db.query(UserSession).filter(UserSession.phone_or_handle == phone).first()
+            if s:
+                data = {"state": s.state or "IDLE", "deal_id": s.deal_id}
+                if isinstance(s.session_data, dict):
+                    data.update(s.session_data)
+                return data
+        except Exception:
+            pass
+        finally:
+            db.close()
+        return None
+
+    def get(self, key, default=None):
+        if key in self:
+            return super().get(key)
+        db_session = self._fetch_from_db(key)
+        if db_session:
+            super().__setitem__(key, db_session)
+            return db_session
+        return default
+
+    def save(self, key):
+        """Explicitly flush any in-place mutations of session dict to the database."""
+        val = super().get(key)
+        if isinstance(val, dict):
+            self._sync_to_db(key, val)
+
+    def clear(self):
+        super().clear()
+        if not self._db_factory:
+            try:
+                from backend.app.database import SessionLocal
+                self._db_factory = SessionLocal
+            except Exception:
+                return
+        db = self._db_factory()
+        try:
+            from backend.app.models import UserSession
+            db.query(UserSession).delete()
+            db.commit()
+        except Exception:
+            pass
+        finally:
+            db.close()
+
+# Database-backed session tracking mapping phone_or_handle -> session dict
+USER_SESSIONS = PersistentSessionStore()
 CLOSED_DEAL_SESSIONS = set()
 
 class ChatBotService:
@@ -151,9 +304,19 @@ class ChatBotService:
     @classmethod
     def process_message(cls, db: Session, platform: PlatformType, phone_or_handle: str, text: str, media_url: str = None) -> str:
         """
-        Main entry point for incoming messages.
+        Main entry point for incoming messages with automatic session persistence.
         Returns the bot's response text.
         """
+        try:
+            return cls._process_message_impl(db, platform, phone_or_handle, text, media_url)
+        finally:
+            try:
+                USER_SESSIONS.save(phone_or_handle)
+            except Exception as save_err:
+                logger.warning(f"Error saving session for {phone_or_handle}: {save_err}")
+
+    @classmethod
+    def _process_message_impl(cls, db: Session, platform: PlatformType, phone_or_handle: str, text: str, media_url: str = None) -> str:
         # Verify user existence in database
         user = db.query(User).filter(User.phone_or_handle == phone_or_handle).first()
         session = USER_SESSIONS.setdefault(phone_or_handle, {"state": "IDLE", "deal_id": None})
@@ -287,7 +450,8 @@ class ChatBotService:
         
         # Guard for no active deal and not in setup/global commands
         is_in_setup = session.get("state") in ["AWAITING_DESC", "AWAITING_PRICE", "AWAITING_TIMELINE", "AWAITING_PAYOUT_UPDATE"]
-        is_global_cmd = normalized_text in ["SELL", "HELP", "MY PROFILE", "UPDATE PAYOUT"] or normalized_text.startswith("JOIN_") or normalized_text.startswith("UPDATE PAYOUT ")
+        is_join_code = "JOIN_" in normalized_text or (len(normalized_text) == 6 and normalized_text.isalnum())
+        is_global_cmd = normalized_text in ["SELL", "HELP", "MY PROFILE", "UPDATE PAYOUT"] or normalized_text.startswith("UPDATE PAYOUT ") or is_join_code
         
         if not active_deal_id and not is_in_setup and not is_global_cmd:
             return "You don't have an active deal right now. Message 'SELL' to start one, or share/enter a JOIN code to join someone else's deal."
@@ -389,9 +553,16 @@ class ChatBotService:
             session["deal_id"] = None
             return "Let's set up your secure escrow deal. What is the item description? (e.g. 'HP Pavilion Laptop, 8GB RAM, Used')"
 
-        if normalized_text.startswith("JOIN_"):
-            deal_id = text.split("_", 1)[1].strip()
-            return cls._handle_join_deal(db, user, deal_id, session)
+        if "JOIN_" in normalized_text or (session.get("state") in ["IDLE", None] and len(normalized_text) == 6 and normalized_text.isalnum()):
+            # Support JOIN_<code_or_uuid>, full URL like wa.me/...JOIN_<code>, or direct 6-char code
+            match = re.search(r"JOIN_([A-Za-z0-9\-]+)", text, re.IGNORECASE)
+            if match:
+                deal_ref = match.group(1).strip()
+                return cls._handle_join_deal(db, user, deal_ref, session)
+            elif len(normalized_text) == 6 and normalized_text.isalnum():
+                deal_match = db.query(Deal).filter(Deal.short_code == normalized_text).first()
+                if deal_match:
+                    return cls._handle_join_deal(db, user, normalized_text, session)
 
         if normalized_text in ["CANCEL", "RESET"]:
             session["state"] = "IDLE"
@@ -741,18 +912,20 @@ class ChatBotService:
             session["deal_id"] = deal.id
             session["state"] = "AWAITING_BUYER_LINK"
             
-            invite_text = f"JOIN_{deal.id}"
+            code_ref = deal.short_code or deal.id
+            invite_text = f"JOIN_{code_ref}"
             invite_link = f"https://wa.me/{settings.BOT_WHATSAPP_NUMBER}?text={invite_text}"
             
             # Return invite instructions to the seller
             response = (
                 f"✅ Deal Draft Created!\n\n"
-                f"Item: {deal.item_description}\n"
-                f"Price: KES {deal.agreed_price:.2f}\n"
-                f"Deadline: {days} days\n\n"
-                f"Please forward this invite text to your buyer:\n\n"
-                f"\"Hey! Let's complete our transaction securely using HoldUntil escrow. "
-                f"Tap this link to review and confirm the deal details: {invite_link}\""
+                f"📦 Item: {deal.item_description}\n"
+                f"💰 Price: KES {deal.agreed_price:,.2f}\n"
+                f"⏳ Deadline: {days} days\n"
+                f"🔑 Deal Code: {code_ref}\n\n"
+                f"Forward this 1-tap invite link to your buyer:\n"
+                f"👉 {invite_link}\n\n"
+                f"(The buyer can also send \"{invite_text}\" to this WhatsApp number)"
             )
             return response
 
@@ -1228,8 +1401,12 @@ class ChatBotService:
         return f"HoldUntil Escrow Bot. Type 'SELL' to start a new transaction, or 'HELP' for instructions."
 
     @classmethod
-    def _handle_join_deal(cls, db: Session, user: User, deal_id: str, session: dict) -> str:
-        deal = db.query(Deal).filter(Deal.id == deal_id).first()
+    def _handle_join_deal(cls, db: Session, user: User, deal_ref: str, session: dict) -> str:
+        clean_ref = deal_ref.strip()
+        # Look up by short code first (case insensitive), then fallback to full UUID
+        deal = db.query(Deal).filter(Deal.short_code == clean_ref.upper()).first()
+        if not deal:
+            deal = db.query(Deal).filter(Deal.id == clean_ref).first()
         if not deal:
             return "Invalid invitation link or deal code."
         

@@ -74,6 +74,9 @@ async def lifespan(app: FastAPI):
                     if 'payout_mpesa_number' not in columns:
                         conn.execute(text("ALTER TABLE users ADD COLUMN payout_mpesa_number VARCHAR(20)"))
                         logger.info("Added payout_mpesa_number column to users table.")
+                    if 'name_verified' not in columns:
+                        conn.execute(text("ALTER TABLE users ADD COLUMN name_verified BOOLEAN DEFAULT 0"))
+                        logger.info("Added name_verified column to users table.")
                     if 'password_hash' not in columns:
                         conn.execute(text("ALTER TABLE users ADD COLUMN password_hash VARCHAR(100)"))
                         logger.info("Added password_hash column to users table.")
@@ -94,6 +97,36 @@ async def lifespan(app: FastAPI):
                     if 'first_instance_statement' not in columns_disputes:
                         conn.execute(text("ALTER TABLE disputes ADD COLUMN first_instance_statement TEXT"))
                         logger.info("Added first_instance_statement column to disputes table.")
+
+            # Auto-migrate deals table for new fields (short_code)
+            if inspector.has_table('deals'):
+                columns_deals = [col['name'] for col in inspector.get_columns('deals')]
+                with engine.begin() as conn:
+                    if 'short_code' not in columns_deals:
+                        conn.execute(text("ALTER TABLE deals ADD COLUMN short_code VARCHAR(10)"))
+                        logger.info("Added short_code column to deals table.")
+
+            # Backfill any existing deals without short_code
+            db_bf = SessionLocal()
+            try:
+                from backend.app.models import Deal, generate_short_code
+                empty_deals = db_bf.query(Deal).filter((Deal.short_code == None) | (Deal.short_code == "")).all()
+                for d in empty_deals:
+                    d.short_code = generate_short_code()
+                if empty_deals:
+                    db_bf.commit()
+                    logger.info(f"Backfilled short_code for {len(empty_deals)} existing deals.")
+            except Exception as bf_err:
+                logger.error(f"Error backfilling deal short_codes: {bf_err}")
+            finally:
+                db_bf.close()
+
+            # Hydrate persistent user sessions from database
+            try:
+                from backend.app.services.chat_bot import USER_SESSIONS
+                USER_SESSIONS.load_all(SessionLocal)
+            except Exception as sess_err:
+                logger.error(f"Error hydrating persistent sessions: {sess_err}")
         except Exception as migration_err:
             logger.error(f"Error running database table migration: {migration_err}")
         
