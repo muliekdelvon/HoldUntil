@@ -387,3 +387,51 @@ class DarajaService:
             logger.error(f"Appeal B2C payout error: {e}")
         finally:
             db.close()
+
+    @classmethod
+    def reverse_transaction(
+        cls,
+        transaction_id: str,
+        amount: float,
+        receiver_shortcode: str = None,
+        remarks: str = "Fraud or disputed escrow reversal"
+    ) -> dict:
+        """
+        Initiates a Transaction Reversal via Safaricom Daraja API.
+        Used to claw back fraudulent or unauthorized transactions.
+        """
+        shortcode = receiver_shortcode or settings.DARAJA_SHORTCODE
+        if settings.SIMULATION_MODE:
+            logger.info(f"[SIMULATION] Mock Reversal requested for Transaction {transaction_id}, Amount {amount}")
+            return {
+                "ResponseCode": "0",
+                "ResponseDescription": "Accept the service request successfully.",
+                "ConversationID": f"sim_rev_conv_{uuid.uuid4().hex[:12]}",
+                "OriginatorConversationID": f"sim_rev_orig_{uuid.uuid4().hex[:12]}"
+            }
+
+        access_token = cls._get_access_token()
+        url = f"https://{'sandbox' if settings.DARAJA_ENV == 'sandbox' else 'api'}.safaricom.co.ke/mpesa/reversal/v1/request"
+        headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
+
+        payload = {
+            "Initiator": settings.DARAJA_INITIATOR_NAME,
+            "SecurityCredential": settings.DARAJA_SECURITY_CREDENTIAL,
+            "CommandID": "TransactionReversal",
+            "TransactionID": str(transaction_id).strip(),
+            "Amount": int(amount),
+            "ReceiverParty": str(shortcode).strip(),
+            "RecieverIdentifierType": "11",  # 11 = Organization / Shortcode
+            "Remarks": remarks[:100],
+            "QueueTimeOutURL": settings.DARAJA_REVERSAL_CALLBACK_URL,
+            "ResultURL": settings.DARAJA_REVERSAL_CALLBACK_URL,
+            "Occasion": "EscrowReversal"
+        }
+
+        try:
+            response = requests.post(url, json=payload, headers=headers, timeout=15)
+            response.raise_for_status()
+            return response.json()
+        except Exception as e:
+            logger.error(f"Daraja Reversal request error for {transaction_id}: {e}")
+            return {"ResponseCode": "1", "ResponseDescription": str(e)}

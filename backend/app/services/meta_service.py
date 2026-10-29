@@ -376,3 +376,197 @@ class MetaService:
         except Exception as e:
             logger.error(f"Failed to send Meta media message: {e}")
             return False
+
+    @classmethod
+    def get_interactive_options_for_text(cls, text: str) -> list:
+        """
+        Detects if a bot message expects specific interactive action replies,
+        returning a list of button objects: [{'id': ..., 'title': ...}].
+        """
+        if not text:
+            return []
+        
+        normalized = text.upper()
+        
+        # 1. Deal acceptance / rejection
+        if "REPLY CONFIRM TO ACCEPT" in normalized and "REJECT TO DECLINE" in normalized:
+            return [
+                {"id": "CONFIRM", "title": "Accept & Pay"},
+                {"id": "REJECT", "title": "Decline Deal"}
+            ]
+            
+        # 2. Release vs Dispute delivery prompt
+        if "REPLY RELEASE TO RELEASE" in normalized and "DISPUTE" in normalized:
+            return [
+                {"id": "RELEASE", "title": "Release Funds"},
+                {"id": "DISPUTE", "title": "Open Dispute"}
+            ]
+            
+        # 3. Transaction Disclaimer Acknowledgement
+        if "REPLY 'I ACKNOWLEDGE'" in normalized or "REPLY I ACKNOWLEDGE" in normalized:
+            return [
+                {"id": "I ACKNOWLEDGE", "title": "I Acknowledge"}
+            ]
+            
+        # 4. Consent Terms Agreement
+        if "DO YOU AGREE? REPLY YES OR NO" in normalized:
+            return [
+                {"id": "YES", "title": "Yes, I Agree"},
+                {"id": "NO", "title": "No"}
+            ]
+            
+        # 5. Tier 1 Dispute Self-Resolution Options
+        if "REPLY 1 FOR FULL REFUND" in normalized and "2 FOR 50/50 SPLIT" in normalized:
+            return [
+                {"id": "1", "title": "Full Refund"},
+                {"id": "2", "title": "50/50 Split"},
+                {"id": "3", "title": "Call Mediator"}
+            ]
+            
+        # 6. Deal Type Selection (Max 3 buttons for WhatsApp quick reply buttons)
+        if "1. DIGITAL DELIVERABLE" in normalized and "2. SHIPPED GOODS" in normalized:
+            return [
+                {"id": "1", "title": "1. Digital"},
+                {"id": "2", "title": "2. Shipped Goods"},
+                {"id": "3", "title": "3. Local Handoff"}
+            ]
+            
+        # 7. Post-funding cancellation prompt
+        if "REPLY CONFIRM_CANCEL" in normalized and "KEEP" in normalized:
+            return [
+                {"id": "CONFIRM_CANCEL", "title": "Confirm Cancel"},
+                {"id": "KEEP", "title": "Keep Deal Active"}
+            ]
+
+        # 8. Mark shipped or verify prompt for seller
+        if "TYPE 'SHIPPED" in normalized and "COURIER" in normalized:
+            return [
+                {"id": "SHIPPED", "title": "Mark as Shipped"}
+            ]
+
+        return []
+
+    @classmethod
+    def send_interactive_buttons(
+        cls,
+        db: Session,
+        platform: str,
+        recipient: str,
+        body_text: str,
+        buttons: list,
+        footer_text: str = "HoldUntil Secure Escrow",
+        deal_id: str = None,
+        is_direct_reply: bool = False,
+        is_urgent: bool = False
+    ) -> bool:
+        """
+        Send Meta WhatsApp interactive quick-reply buttons (up to 3 buttons, max 20 chars per title).
+        Logs clean button indicators in the database and audit trail.
+        """
+        if not buttons:
+            return cls.send_text_message(db, platform, recipient, body_text, deal_id, is_direct_reply, is_urgent)
+
+        # WhatsApp limits interactive buttons to 3 items
+        trimmed_buttons = buttons[:3]
+        clean_recipient = str(recipient).replace("+", "").replace(" ", "").replace("-", "").strip()
+
+        # Build readable button display for ChatLog & simulation
+        btn_labels = "  ".join([f"[{b.get('title')}]" for b in trimmed_buttons])
+        display_content = f"{body_text}\n\n👉 {btn_labels}"
+
+        bot_id = cls._ensure_bot_user_exists(db)
+        if deal_id:
+            chat_log = ChatLog(
+                deal_id=deal_id,
+                sender_id=bot_id,
+                message_content=display_content,
+                timestamp=datetime.now(UTC).replace(tzinfo=None)
+            )
+            db.add(chat_log)
+            db.commit()
+
+        cls._log_bot_message(db, recipient, display_content, is_direct_reply, is_urgent, deal_id)
+
+        if settings.SIMULATION_MODE or platform not in ["whatsapp", PlatformType.WHATSAPP]:
+            logger.info(f"[SIMULATION] Interactive buttons sent to {recipient}: {btn_labels}")
+            return True
+
+        # Build Meta Graph API Interactive Button Payload
+        formatted_buttons = []
+        for btn in trimmed_buttons:
+            formatted_buttons.append({
+                "type": "reply",
+                "reply": {
+                    "id": str(btn.get("id"))[:256],
+                    "title": str(btn.get("title"))[:20]  # Meta 20-character title limit
+                }
+            })
+
+        payload = {
+            "messaging_product": "whatsapp",
+            "recipient_type": "individual",
+            "to": clean_recipient,
+            "type": "interactive",
+            "interactive": {
+                "type": "button",
+                "body": {"text": body_text[:1024]},
+                "footer": {"text": footer_text[:60]},
+                "action": {
+                    "buttons": formatted_buttons
+                }
+            }
+        }
+
+        url = f"https://graph.facebook.com/{settings.META_API_VERSION}/{settings.META_PHONE_NUMBER_ID}/messages"
+        headers = {
+            "Authorization": f"Bearer {settings.META_ACCESS_TOKEN}",
+            "Content-Type": "application/json"
+        }
+
+        try:
+            response = requests.post(url, json=payload, headers=headers, timeout=10)
+            if response.status_code >= 400:
+                logger.warning(f"Meta Interactive Button API returned {response.status_code}: {response.text}. Falling back to plain text.")
+                return cls.send_text_message(db, platform, clean_recipient, display_content, deal_id, is_direct_reply, is_urgent, bypass_checks=True)
+            response.raise_for_status()
+            return True
+        except Exception as e:
+            logger.error(f"Failed to send Meta interactive buttons to {clean_recipient}: {e}. Falling back to text.")
+            return cls.send_text_message(db, platform, clean_recipient, display_content, deal_id, is_direct_reply, is_urgent, bypass_checks=True)
+
+    @classmethod
+    def send_smart_reply(
+        cls,
+        db: Session,
+        platform: str,
+        recipient: str,
+        text: str,
+        deal_id: str = None,
+        is_direct_reply: bool = False,
+        is_urgent: bool = False
+    ) -> bool:
+        """
+        Intelligently routes a bot response to either WhatsApp Interactive Buttons
+        or standard text message based on content.
+        """
+        buttons = cls.get_interactive_options_for_text(text)
+        if buttons and platform in ["whatsapp", PlatformType.WHATSAPP]:
+            return cls.send_interactive_buttons(
+                db=db,
+                platform=platform,
+                recipient=recipient,
+                body_text=text,
+                buttons=buttons,
+                deal_id=deal_id,
+                is_direct_reply=is_direct_reply,
+                is_urgent=is_urgent
+            )
+        return cls.send_text_message(
+            db=db,
+            platform=platform,
+            recipient=recipient,
+            text=text,
+            deal_id=deal_id,
+            is_direct_reply=is_direct_reply,
+            is_urgent=is_urgent
+        )

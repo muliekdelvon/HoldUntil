@@ -713,6 +713,7 @@ export default function App() {
         const botLog = {
           sender_handle: "Bot",
           message_content: data.reply,
+          buttons: data.buttons || [],
           timestamp: new Date().toISOString()
         };
         if (isSeller) {
@@ -1562,6 +1563,35 @@ export default function App() {
                               <Trash2 size={10} />
                             </button>
                           )}
+                          {isBot && log.buttons && log.buttons.length > 0 && (
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '8px' }}>
+                              {log.buttons.map((btn, bIdx) => (
+                                <button
+                                  key={bIdx}
+                                  type="button"
+                                  onClick={() => sendSandboxMessage(sellerPhone, btn.id, 'Seller')}
+                                  style={{
+                                    background: 'rgba(37, 211, 102, 0.15)',
+                                    border: '1px solid rgba(37, 211, 102, 0.5)',
+                                    color: '#25D366',
+                                    borderRadius: '16px',
+                                    padding: '4px 10px',
+                                    fontSize: '0.75rem',
+                                    cursor: 'pointer',
+                                    fontWeight: 600,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '4px',
+                                    transition: 'all 0.15s ease'
+                                  }}
+                                  onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(37, 211, 102, 0.25)'; }}
+                                  onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(37, 211, 102, 0.15)'; }}
+                                >
+                                  <span>⚡</span> {btn.title}
+                                </button>
+                              ))}
+                            </div>
+                          )}
                         </>
                       )}
                     </div>
@@ -2211,6 +2241,35 @@ export default function App() {
                             >
                               <Trash2 size={10} />
                             </button>
+                          )}
+                          {isBot && log.buttons && log.buttons.length > 0 && (
+                            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '8px' }}>
+                              {log.buttons.map((btn, bIdx) => (
+                                <button
+                                  key={bIdx}
+                                  type="button"
+                                  onClick={() => sendSandboxMessage(buyerPhone, btn.id, 'Buyer')}
+                                  style={{
+                                    background: 'rgba(37, 211, 102, 0.15)',
+                                    border: '1px solid rgba(37, 211, 102, 0.5)',
+                                    color: '#25D366',
+                                    borderRadius: '16px',
+                                    padding: '4px 10px',
+                                    fontSize: '0.75rem',
+                                    cursor: 'pointer',
+                                    fontWeight: 600,
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '4px',
+                                    transition: 'all 0.15s ease'
+                                  }}
+                                  onMouseEnter={(e) => { e.currentTarget.style.background = 'rgba(37, 211, 102, 0.25)'; }}
+                                  onMouseLeave={(e) => { e.currentTarget.style.background = 'rgba(37, 211, 102, 0.15)'; }}
+                                >
+                                  <span>⚡</span> {btn.title}
+                                </button>
+                              ))}
+                            </div>
                           )}
                         </>
                       )}

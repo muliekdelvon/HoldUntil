@@ -90,7 +90,15 @@ async def receive_meta_message(request: Request, db: Session = Depends(get_db)):
                 elif msg_type == "interactive":
                     interactive = msg.get("interactive", {})
                     int_type = interactive.get("type")
-                    if int_type == "nfm_reply":
+                    if int_type == "button_reply":
+                        button_reply = interactive.get("button_reply", {})
+                        text_content = button_reply.get("id") or button_reply.get("title", "")
+                        logger.info(f"Received WhatsApp button reply from {sender}: {text_content}")
+                    elif int_type == "list_reply":
+                        list_reply = interactive.get("list_reply", {})
+                        text_content = list_reply.get("id") or list_reply.get("title", "")
+                        logger.info(f"Received WhatsApp list reply from {sender}: {text_content}")
+                    elif int_type == "nfm_reply":
                         nfm_reply = interactive.get("nfm_reply", {})
                         if nfm_reply.get("name") in ["flow", "profile_creation"]:
                             response_json = nfm_reply.get("response_json", "{}")
@@ -110,7 +118,7 @@ async def receive_meta_message(request: Request, db: Session = Depends(get_db)):
                                 )
                                 from backend.app.services.chat_bot import USER_SESSIONS
                                 deal_id = USER_SESSIONS.get(sender, {}).get("deal_id")
-                                MetaService.send_text_message(
+                                MetaService.send_smart_reply(
                                     db=db,
                                     platform=platform,
                                     recipient=sender,
@@ -151,8 +159,8 @@ async def receive_meta_message(request: Request, db: Session = Depends(get_db)):
                     if not deal_id:
                         deal_id = USER_SESSIONS.get(sender, {}).get("deal_id")
                     
-                    # Dispatch bot reply back to user using the computed deal_id
-                    MetaService.send_text_message(
+                    # Dispatch bot reply back to user using the computed deal_id (with interactive button enhancement)
+                    MetaService.send_smart_reply(
                         db=db,
                         platform=platform,
                         recipient=sender,

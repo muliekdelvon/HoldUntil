@@ -106,6 +106,17 @@ async def lifespan(app: FastAPI):
                         conn.execute(text("ALTER TABLE deals ADD COLUMN short_code VARCHAR(10)"))
                         logger.info("Added short_code column to deals table.")
 
+            # Auto-migrate payments table for new fields (reversal_ref, is_reversed)
+            if inspector.has_table('payments'):
+                columns_payments = [col['name'] for col in inspector.get_columns('payments')]
+                with engine.begin() as conn:
+                    if 'reversal_ref' not in columns_payments:
+                        conn.execute(text("ALTER TABLE payments ADD COLUMN reversal_ref VARCHAR(100)"))
+                        logger.info("Added reversal_ref column to payments table.")
+                    if 'is_reversed' not in columns_payments:
+                        conn.execute(text("ALTER TABLE payments ADD COLUMN is_reversed BOOLEAN DEFAULT 0"))
+                        logger.info("Added is_reversed column to payments table.")
+
             # Backfill any existing deals without short_code
             db_bf = SessionLocal()
             try:
@@ -302,10 +313,16 @@ def dialogue_chat_simulator(
             db.add(chat_log)
             db.commit()
     
+    buttons = []
+    if bot_reply:
+        from backend.app.services.meta_service import MetaService
+        buttons = MetaService.get_interactive_options_for_text(bot_reply)
+
     reply_data = {
         "user": phone_or_handle,
         "message": message,
         "reply": bot_reply,
+        "buttons": buttons,
         "session_state": USER_SESSIONS.get(phone_or_handle, {}).get("state"),
         "deal_id": USER_SESSIONS.get(phone_or_handle, {}).get("deal_id")
     }

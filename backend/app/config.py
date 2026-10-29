@@ -29,6 +29,8 @@ class Settings(BaseSettings):
     DARAJA_SECURITY_CREDENTIAL: str = "mock_security_credential"
     DARAJA_CALLBACK_URL: str = "https://example.com/api/webhook/daraja/callback"
     DARAJA_B2C_CALLBACK_URL: str = "https://example.com/api/webhook/daraja/b2c_callback"
+    DARAJA_REVERSAL_CALLBACK_URL: str = "https://example.com/api/webhook/daraja/reversal"
+    ADMIN_ALERT_PHONE: str = ""  # Optional phone for urgent security/fraud alerts
 
     # AI Moderator Settings (Gemini)
     GEMINI_API_KEY: str = ""

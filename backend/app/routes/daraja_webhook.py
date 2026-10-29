@@ -291,3 +291,178 @@ async def mpesa_b2c_callback(request: Request, db: Session = Depends(get_db)):
         return {"ResultCode": 0, "ResultDesc": "Success"}
         
     return {"ResultCode": 0, "ResultDesc": "Success"}
+
+@router.post("/reversal")
+async def mpesa_reversal_callback(request: Request, db: Session = Depends(get_db)):
+    """
+    Callback endpoint for Safaricom M-Pesa Transaction Reversal results.
+    Triggers immediate security auto-freeze on affected deals to prevent seller loss
+    and fraud from unapproved customer payment reversals.
+    """
+    try:
+        payload = await request.json()
+        logger.warning(f"Received M-Pesa Reversal Callback: {payload}")
+
+        body = payload.get("Result", payload)
+        result_code = body.get("ResultCode")
+        result_desc = body.get("ResultDesc")
+        transaction_id = body.get("TransactionID")  # Reversal transaction ID from Safaricom
+
+        # Extract Original Transaction ID from parameters
+        original_trx_id = None
+        result_params = body.get("ResultParameters", {}).get("ResultParameter", [])
+        for p in result_params:
+            if p.get("Key") in ["OriginalTransactionID", "TransID", "ReceiptNo"]:
+                original_trx_id = p.get("Value")
+                break
+
+        if not original_trx_id:
+            ref_items = body.get("ReferenceData", {}).get("ReferenceItem", [])
+            for item in ref_items:
+                if item.get("Key") in ["ReceiptNo", "OriginalTransactionID"]:
+                    original_trx_id = item.get("Value")
+                    break
+
+        if not original_trx_id:
+            original_trx_id = body.get("OriginalTransactionID")
+
+        logger.info(f"M-Pesa Reversal event: Code {result_code}, Original Trx: {original_trx_id}, Reversal Trx: {transaction_id}")
+
+        if result_code == 0:
+            # Reversal was completed by Safaricom
+            payment = None
+            if original_trx_id:
+                payment = db.query(Payment).filter(
+                    (Payment.c2b_confirmation_ref == original_trx_id) |
+                    (Payment.stk_push_ref == original_trx_id)
+                ).first()
+
+            if not payment and original_trx_id:
+                # Fuzzy fallback search
+                payment = db.query(Payment).filter(
+                    Payment.c2b_confirmation_ref.ilike(f"%{original_trx_id}%")
+                ).first()
+
+            if payment:
+                # 1. Update Payment record
+                payment.is_reversed = True
+                payment.reversal_ref = transaction_id or f"REV_{uuid.uuid4().hex[:8].upper()}"
+                payment.status = PaymentStatus.FAILED
+                
+                # 2. Auto-freeze the Deal
+                deal = db.query(Deal).filter(Deal.id == payment.deal_id).first()
+                if deal:
+                    prev_status = deal.status
+                    deal.status = DealStatus.DISPUTED
+                    db.commit()
+
+                    # 3. Create High-Priority Fraud Dispute
+                    from backend.app.models import Dispute, DisputeTier, ResolutionMethod, ChatLog
+                    from backend.app.services.chat_bot import ChatBotService
+                    from datetime import datetime, UTC
+                    
+                    bot_id = MetaService._ensure_bot_user_exists(db)
+                    
+                    statement_text = (
+                        f"🚨 AUTOMATED FRAUD ALERT: Safaricom processed an M-Pesa reversal for payment "
+                        f"receipt '{original_trx_id}' (Amount: KES {payment.amount:,.2f}). "
+                        f"Escrow funds were recalled. Deal auto-frozen from state '{prev_status.value}' "
+                        f"to protect the seller from unapproved withdrawal."
+                    )
+                    
+                    dispute = Dispute(
+                        deal_id=deal.id,
+                        filed_by=deal.seller_id,
+                        reason="M-Pesa Payment Reversal Fraud Alert",
+                        tier=DisputeTier.TIER_3_HUMAN,
+                        resolution_method=ResolutionMethod.HUMAN_FIRST_INSTANCE,
+                        is_appeal=False,
+                        first_instance_statement=statement_text
+                    )
+                    db.add(dispute)
+                    db.commit()
+                    db.refresh(dispute)
+
+                    # Auto-assign arbitrator for urgent review
+                    ChatBotService.auto_assign_arbitrator(db, dispute)
+
+                    # 4. Insert Critical Audit Warning to Deal Chat Log
+                    chat_warning = (
+                        f"🚨 CRITICAL FRAUD NOTICE: An M-Pesa payment reversal was executed by Safaricom "
+                        f"for this transaction (Ref: {original_trx_id}). All escrow operations are FROZEN. "
+                        f"SELLER: DO NOT hand over or dispatch any items. A senior staff arbitrator has been assigned."
+                    )
+                    chat_log = ChatLog(
+                        deal_id=deal.id,
+                        sender_id=bot_id,
+                        message_content=chat_warning,
+                        timestamp=datetime.now(UTC).replace(tzinfo=None)
+                    )
+                    db.add(chat_log)
+                    db.commit()
+
+                    # 5. Send Immediate WhatsApp Alert to Seller
+                    if deal.seller and deal.seller.phone_or_handle:
+                        seller_components = [{
+                            "type": "body",
+                            "parameters": [
+                                {"type": "text", "text": deal.item_description[:30]},
+                                {"type": "text", "text": "Deal FROZEN (Reversal Alert)"},
+                                {"type": "text", "text": f"M-Pesa reversal detected for receipt {original_trx_id}. DO NOT hand over goods!"},
+                                {"type": "text", "text": "Our arbitration team is handling this. You are protected."}
+                            ]
+                        }]
+                        MetaService.send_template_message(
+                            db, PlatformType.WHATSAPP, deal.seller.phone_or_handle,
+                            "deal_status_alert", components=seller_components, deal_id=deal.id, is_urgent=True
+                        )
+
+                    # 6. Send Notice to Buyer
+                    if deal.buyer and deal.buyer.phone_or_handle:
+                        buyer_components = [{
+                            "type": "body",
+                            "parameters": [
+                                {"type": "text", "text": deal.item_description[:30]},
+                                {"type": "text", "text": "Deal Under Investigation"},
+                                {"type": "text", "text": f"A payment reversal was detected for your transaction (KES {payment.amount:,.2f})."},
+                                {"type": "text", "text": "Unauthorized reversals violate escrow terms. Contact support."}
+                            ]
+                        }]
+                        MetaService.send_template_message(
+                            db, PlatformType.WHATSAPP, deal.buyer.phone_or_handle,
+                            "deal_status_alert", components=buyer_components, deal_id=deal.id, is_urgent=True
+                        )
+
+                    # 7. Notify Platform Admin if ADMIN_ALERT_PHONE is configured in .env
+                    if settings.ADMIN_ALERT_PHONE:
+                        admin_alert = (
+                            f"🚨 ADMIN FRAUD ALERT: M-Pesa Reversal Executed!\n\n"
+                            f"• Deal: {deal.item_description} (ID: {deal.id[:8]}, Code: {deal.short_code})\n"
+                            f"• Original Receipt: {original_trx_id}\n"
+                            f"• Reversal Ref: {transaction_id}\n"
+                            f"• Amount: KES {payment.amount:,.2f}\n"
+                            f"• Seller: {deal.seller.phone_or_handle if deal.seller else 'N/A'}\n"
+                            f"• Buyer: {deal.buyer.phone_or_handle if deal.buyer else 'N/A'}\n\n"
+                            f"Deal has been auto-frozen to DISPUTED."
+                        )
+                        MetaService.send_text_message(
+                            db=db,
+                            platform="whatsapp",
+                            recipient=settings.ADMIN_ALERT_PHONE,
+                            text=admin_alert,
+                            deal_id=deal.id,
+                            is_urgent=True,
+                            bypass_checks=True
+                        )
+                        logger.info(f"Notified admin at {settings.ADMIN_ALERT_PHONE} of payment reversal on deal {deal.id}")
+
+                    logger.warning(f"AUTO-FROZEN Deal {deal.id} due to M-Pesa reversal on payment {payment.id}")
+            else:
+                logger.warning(f"Reversal callback received for unknown payment ref '{original_trx_id}'. Logged for audit.")
+        else:
+            logger.info(f"M-Pesa Reversal request failed or was rejected by Safaricom: {result_desc}")
+
+        return {"ResultCode": 0, "ResultDesc": "Reversal processed successfully"}
+    except Exception as e:
+        logger.error(f"Error handling M-Pesa reversal callback: {e}", exc_info=True)
+        return {"ResultCode": 0, "ResultDesc": "Error logged"}

@@ -138,6 +138,8 @@ class Payment(Base):
     b2c_payout_ref = Column(String(100), nullable=True, index=True)
     amount = Column(Float, nullable=False)
     status = Column(SQLEnum(PaymentStatus), default=PaymentStatus.PENDING, nullable=False, index=True)
+    reversal_ref = Column(String(100), nullable=True, index=True)
+    is_reversed = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime, default=utcnow)
 
     # Relationships
